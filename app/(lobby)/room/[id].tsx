@@ -1,20 +1,23 @@
+import * as Clipboard from "expo-clipboard";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import { FlatList, Modal, Share, Text, TextInput, View } from "react-native";
+
 import Button from "@/components/ui/Button";
 import Screen from "@/components/ui/Screen";
 import { getMyPlayer, setMyNickname } from "@/features/lobby/api";
 import { useLobbyMembers } from "@/features/lobby/hooks";
 import { nicknameSchema } from "@/lib/validation";
 import { supabase } from "@/services/supabase";
-import * as Clipboard from "expo-clipboard";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { FlatList, Modal, Share, Text, TextInput, View } from "react-native";
 
+/** Realtime presence channel for this lobby */
 function lobbyChannel(lobbyId: string) {
   return supabase.channel(`lobby:${lobbyId}`, { config: { presence: { key: "user" } } });
 }
 
 export default function LobbyRoom() {
   const { id, code: codeParam } = useLocalSearchParams<{ id: string; code?: string }>();
+
   const [code, setCode] = useState(codeParam ?? "");
   const [isHost, setIsHost] = useState(false);
 
@@ -48,15 +51,13 @@ export default function LobbyRoom() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       await channel.subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          channel.track({ id: user?.id || "anon" }); // nickname added after save
-        }
+        if (status === "SUBSCRIBED") channel.track({ id: user?.id || "anon" });
       });
     })();
     return () => { channel.unsubscribe(); };
   }, [channel]);
 
-  // prompt for nickname if missing/placeholder
+  // prompt for nickname if missing
   useEffect(() => {
     if (!id) return;
     (async () => {
@@ -66,7 +67,7 @@ export default function LobbyRoom() {
           setShowNameModal(true);
           setNickname("");
         }
-      } catch { /* ignore */ }
+      } catch {}
     })();
   }, [id]);
 
@@ -82,10 +83,9 @@ export default function LobbyRoom() {
       setShowNameModal(false);
       setNameErr(null);
 
-      // update presence meta with nickname
       const { data: { user } } = await supabase.auth.getUser();
       channel?.track({ id: user?.id || "anon", nickname: parsed.data });
-    } catch (e: any) {
+    } catch {
       setNameErr("Could not save name");
     } finally {
       setSaving(false);
@@ -95,44 +95,97 @@ export default function LobbyRoom() {
   const canStart = isHost && members.length >= 2;
 
   return (
-    <Screen className="px-6 py-10">
-      <Text className="text-white text-3xl font-bold mb-2">Lobby</Text>
-      <Text className="text-white/70 mb-6">Share this code with friends:</Text>
+    <Screen className="flex-1 bg-black">
+      {/* content */}
+      <View className="flex-1 px-6 pt-8 pb-24">
+        {/* Title */}
+        <View className="mb-6">
+          <Text className="text-white text-4xl font-extrabold tracking-tight">Lobby</Text>
+          <Text className="text-white/60 mt-1">Invite friends with this code</Text>
+        </View>
 
-      <View className="items-center mb-6">
-        <Text className="text-white text-4xl tracking-widest">{code || "———"}</Text>
-      </View>
+        {/* Code Card */}
+        <View className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+          <Text className="text-white text-5xl font-bold tracking-[0.35em] text-center">
+            {code || "———"}
+          </Text>
 
-      <View className="flex-row gap-3 mb-10">
-        <Button variant="ghost" onPress={async () => code && (await Clipboard.setStringAsync(code))}>Copy</Button>
-        <Button onPress={async () => code && (await Share.share({ message: `Join my Quiz Rush lobby: ${code}` }))}>Share</Button>
-      </View>
-
-      <Text className="text-white text-2xl font-bold mb-2">Players</Text>
-      <Text className="text-white/70 mb-4">People here ({members.length})</Text>
-
-      <FlatList
-        data={members}
-        keyExtractor={(m) => m.user_id}
-        renderItem={({ item }) => (
-          <View className="mb-2 rounded-xl bg-white/5 px-4 py-3">
-            <Text className="text-white">{item.nickname || item.user_id.slice(0, 6)}</Text>
-            <Text className="text-white/50 text-xs">Score: {item.score}</Text>
+          <View className="mt-4 flex-row gap-3 justify-center">
+            <Button
+              variant="ghost"
+              className="rounded-xl bg-white/10 px-4 py-3"
+              onPress={async () => code && (await Clipboard.setStringAsync(code))}
+            >
+              Copy
+            </Button>
+            <Button
+              className="rounded-xl px-5 py-3"
+              onPress={async () => code && (await Share.share({ message: `Join my Quiz Rush lobby: ${code}` }))}
+            >
+              Share
+            </Button>
           </View>
-        )}
-      />
+        </View>
 
-      <View className="mt-8 flex-row gap-12">
-        <Button variant="ghost" onPress={() => router.replace("/(root)")}>Leave</Button>
-        <Button disabled={!canStart} onPress={() => {/* start game soon */}}>
-          {isHost ? (canStart ? "Start" : "Waiting…") : "Waiting for host"}
-        </Button>
+        {/* Players */}
+        <View className="mb-3 flex-row items-end justify-between">
+          <Text className="text-white text-2xl font-bold">Players</Text>
+          <Text className="text-white/60">Online: {members.length}</Text>
+        </View>
+
+        {/* List */}
+        <FlatList
+          data={members}
+          keyExtractor={(m) => m.user_id}
+          contentContainerStyle={{ paddingBottom: 12 }}
+          renderItem={({ item }) => (
+            <View className="mb-3 flex-row items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+              {/* Placeholder avatar circle */}
+              <View className="h-10 w-10 rounded-full bg-white/10 items-center justify-center">
+                <Text className="text-white font-bold">
+                  {(item.nickname || item.user_id).slice(0, 1).toUpperCase()}
+                </Text>
+              </View>
+
+              <View className="flex-1">
+                <Text className="text-white text-base font-semibold">
+                  {item.nickname || item.user_id.slice(0, 6)}
+                </Text>
+                <Text className="text-white/50 text-xs">Score: {item.score}</Text>
+              </View>
+            </View>
+          )}
+          ListEmptyComponent={
+            <Text className="text-white/50">Waiting for players…</Text>
+          }
+        />
+      </View>
+
+      {/* Sticky bottom bar */}
+      <View className="absolute bottom-0 left-0 right-0 border-t border-white/10 bg-black/80 px-6 pb-6 pt-3">
+        <View className="flex-row items-center justify-between">
+          <Button
+            variant="ghost"
+            className="bg-white/10 px-5 py-3 rounded-xl"
+            onPress={() => router.replace("/(root)")}
+          >
+            Leave
+          </Button>
+
+          <Button
+            disabled={!canStart}
+            className={`px-6 py-3 rounded-xl ${canStart ? "" : "opacity-50"}`}
+            onPress={() => {/* next: start game */}}
+          >
+            {isHost ? (canStart ? "Start" : "Waiting…") : "Waiting for host"}
+          </Button>
+        </View>
       </View>
 
       {/* Nickname Modal */}
       <Modal transparent visible={showNameModal} animationType="fade">
         <View className="flex-1 items-center justify-center bg-black/70 px-6">
-          <View className="w-full max-w-[360px] rounded-2xl bg-neutral-900 p-5">
+          <View className="w-full max-w-[360px] rounded-2xl border border-white/10 bg-[#121216] p-5">
             <Text className="text-white text-xl font-semibold mb-3">Choose a nickname</Text>
             <TextInput
               autoFocus
@@ -140,16 +193,13 @@ export default function LobbyRoom() {
               placeholderTextColor="#9aa0a6"
               className="mb-3 rounded-xl bg-white/10 px-4 py-3 text-white border border-white/10"
               value={nickname}
-              onChangeText={(t) => {
-                setNickname(t);
-                if (nameErr) setNameErr(null);
-              }}
+              onChangeText={(t) => { setNickname(t); if (nameErr) setNameErr(null); }}
               maxLength={20}
             />
             {nameErr ? <Text className="text-red-400 mb-2">{nameErr}</Text> : null}
             <View className="flex-row gap-3 justify-end">
-              <Button variant="ghost" onPress={() => setShowNameModal(false)}>Skip</Button>
-              <Button onPress={onSaveNickname} disabled={saving}>
+              <Button variant="ghost" className="bg-white/10 px-4 py-3 rounded-xl" onPress={() => setShowNameModal(false)}>Skip</Button>
+              <Button className="px-5 py-3 rounded-xl" onPress={onSaveNickname} disabled={saving}>
                 {saving ? "Saving…" : "Save"}
               </Button>
             </View>
