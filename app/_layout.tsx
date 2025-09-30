@@ -1,24 +1,28 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
-
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { queryClient } from '@/services/queryClient';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { Slot } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { Text } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import "../app/globals.css";
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  const ready = useAuthReady();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <StatusBar style="light" />
+        <QueryClientProvider client={queryClient}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={['top','left','right']}>
+            {ready ? <Slot /> : (
+              <Text style={{ color: "white", textAlign: "center", marginTop: 40 }}>
+                Connecting…
+              </Text>
+            )}
+          </SafeAreaView>
+        </QueryClientProvider>
+
+    </SafeAreaProvider>
   );
 }
